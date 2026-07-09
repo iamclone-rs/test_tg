@@ -43,6 +43,10 @@ parser.add_argument(
     default='csv',
     choices=['csv', 'tensorboard', 'none'],
     help='Logger backend. CSV avoids TensorBoard/TensorFlow dependency issues.')
+parser.add_argument(
+    '--progress_bar',
+    action='store_true',
+    help='Show Lightning progress bars. Disabled by default for clean epoch metrics.')
 
 # ----------------------
 # ViT Prompt Parameters

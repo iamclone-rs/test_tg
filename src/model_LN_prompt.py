@@ -173,7 +173,7 @@ class Model(pl.LightningModule):
             self.log('train_cls_loss', cls_loss, prog_bar=False, batch_size=batch_size)
             self.log('train_div_loss', div_loss, prog_bar=False, batch_size=batch_size)
             self.log('train_ps_loss', ps_loss, prog_bar=False, batch_size=batch_size)
-        self.log('train_loss', loss, prog_bar=True, batch_size=batch_size)
+        self.log('train_loss', loss, prog_bar=False, batch_size=batch_size)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -185,7 +185,7 @@ class Model(pl.LightningModule):
         neg_feat = self.forward(neg_tensor, dtype='image')
 
         loss = self.loss_fn(sk_feat, img_feat, neg_feat)
-        self.log('val_loss', loss, prog_bar=True, batch_size=batch_size)
+        self.log('val_loss', loss, prog_bar=False, batch_size=batch_size)
         output = {
             'sk_feat': sk_feat.detach(),
             'img_feat': img_feat.detach(),
@@ -228,11 +228,11 @@ class Model(pl.LightningModule):
         mAP = torch.mean(ap)
         acc1 = torch.mean(top1)
         acc5 = torch.mean(top5)
-        self.log('mAP', mAP, prog_bar=True, batch_size=len(query_feat_all))
-        self.log('acc1', acc1, prog_bar=True, batch_size=len(query_feat_all))
-        self.log('acc5', acc5, prog_bar=True, batch_size=len(query_feat_all))
+        self.log('mAP', mAP, prog_bar=False, batch_size=len(query_feat_all))
+        self.log('acc1', acc1, prog_bar=False, batch_size=len(query_feat_all))
+        self.log('acc5', acc5, prog_bar=False, batch_size=len(query_feat_all))
         if self.global_step > 0:
             self.best_metric = self.best_metric if  (self.best_metric > mAP.item()) else mAP.item()
-        print ('{} mAP: {}, Acc@1: {}, Acc@5: {}, Best mAP: {}'.format(
-            self.opts.retrieval_level, mAP.item(), acc1.item(), acc5.item(), self.best_metric))
+        print ('epoch={} {} mAP={:.4f} acc1={:.4f} acc5={:.4f} best_mAP={:.4f}'.format(
+            self.current_epoch, self.opts.retrieval_level, mAP.item(), acc1.item(), acc5.item(), self.best_metric))
         self.validation_outputs = []

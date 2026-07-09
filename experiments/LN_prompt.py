@@ -1,6 +1,8 @@
 import os
 import glob
 import inspect
+import logging
+import warnings
 import torch
 from torch.utils.data import DataLoader
 from torchvision import transforms
@@ -13,6 +15,9 @@ from src.dataset_retrieval import Sketchy
 from experiments.options import opts
 
 if __name__ == '__main__':
+    logging.getLogger('pytorch_lightning').setLevel(logging.ERROR)
+    warnings.filterwarnings('ignore', module='pytorch_lightning')
+
     if torch.cuda.is_available():
         torch.set_float32_matmul_precision('medium')
 
@@ -51,13 +56,16 @@ if __name__ == '__main__':
     if not os.path.exists(ckpt_path):
         ckpt_path = None
     else:
-        print ('resuming training from %s'%ckpt_path)
+        pass
 
     trainer_kwargs = {
         'min_epochs': 1,
         'max_epochs': opts.max_epochs,
         'benchmark': True,
         'logger': logger,
+        'enable_progress_bar': opts.progress_bar,
+        'enable_model_summary': False,
+        'num_sanity_val_steps': 0,
         # 'val_check_interval': 10,
         # 'accumulate_grad_batches': 1,
         'check_val_every_n_epoch': opts.check_val_every_n_epoch,
@@ -75,7 +83,6 @@ if __name__ == '__main__':
 
     model = Model()
 
-    print ('beginning training...good luck...')
     fit_kwargs = {}
     if ckpt_path is not None and 'ckpt_path' in inspect.signature(trainer.fit).parameters:
         fit_kwargs['ckpt_path'] = ckpt_path
