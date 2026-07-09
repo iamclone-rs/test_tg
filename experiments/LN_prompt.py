@@ -44,7 +44,7 @@ if __name__ == '__main__':
     else:
         logger = False
 
-    checkpoint_metric = 'acc1' if opts.retrieval_level == 'fine_grain' else 'mAP'
+    checkpoint_metric = 'mAP'
     checkpoint_callback = ModelCheckpoint(
         monitor=checkpoint_metric,
         dirpath='saved_models/%s'%opts.exp_name,

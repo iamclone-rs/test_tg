@@ -208,11 +208,9 @@ class Model(pl.LightningModule):
         all_target_id = np.array(sum([list(self.validation_outputs[i]['target_id']) for i in range(Len)], []))
 
 
-        ## mAP retrieval metric. Category mode uses class labels; fine-grain mode uses paired photo ids.
+        ## mAP retrieval metric over the positive image gallery, following the original code path.
         gallery = gallery_feat_all
         ap = torch.zeros(len(query_feat_all))
-        top1 = torch.zeros(len(query_feat_all))
-        top5 = torch.zeros(len(query_feat_all))
         for idx, sk_feat in enumerate(query_feat_all):
             distance = -1*self.distance_fn(sk_feat.unsqueeze(0), gallery)
             target = torch.zeros(len(gallery), dtype=torch.bool)
@@ -221,18 +219,11 @@ class Model(pl.LightningModule):
             else:
                 target[np.where(all_category == all_category[idx])] = True
             ap[idx] = self._average_precision(distance.cpu(), target.cpu())
-            order = torch.argsort(distance, descending=True).cpu()
-            top1[idx] = target.cpu()[order[:1]].any().float()
-            top5[idx] = target.cpu()[order[:5]].any().float()
         
         mAP = torch.mean(ap)
-        acc1 = torch.mean(top1)
-        acc5 = torch.mean(top5)
         self.log('mAP', mAP, prog_bar=False, batch_size=len(query_feat_all))
-        self.log('acc1', acc1, prog_bar=False, batch_size=len(query_feat_all))
-        self.log('acc5', acc5, prog_bar=False, batch_size=len(query_feat_all))
         if self.global_step > 0:
             self.best_metric = self.best_metric if  (self.best_metric > mAP.item()) else mAP.item()
-        print ('epoch={} {} mAP={:.4f} acc1={:.4f} acc5={:.4f} best_mAP={:.4f}'.format(
-            self.current_epoch, self.opts.retrieval_level, mAP.item(), acc1.item(), acc5.item(), self.best_metric))
+        print ('epoch={} {} mAP={:.4f} best_mAP={:.4f}'.format(
+            self.current_epoch, self.opts.retrieval_level, mAP.item(), self.best_metric))
         self.validation_outputs = []
