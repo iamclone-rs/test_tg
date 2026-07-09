@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+
+logs/
+tb_logs/
+saved_models/
+
+.tmp_*/
