@@ -163,14 +163,32 @@ class Model(pl.LightningModule):
         return torch.mean(ap)
 
     def _compute_fine_grain_metrics(self, query_feat_all, gallery_feat_all, all_category, all_target_id):
-        ap = []
-        top1 = []
-        top5 = []
+        category_ap = []
+        category_top1 = []
+        category_top5 = []
 
         for category in sorted(set(all_category)):
             category_indices = np.where(all_category == category)[0]
-            category_gallery = gallery_feat_all[category_indices]
-            category_target_id = all_target_id[category_indices]
+            gallery_indices = []
+            gallery_target_id = []
+            seen_target_id = set()
+
+            for idx in category_indices:
+                target_id = all_target_id[idx]
+                if target_id in seen_target_id:
+                    continue
+                seen_target_id.add(target_id)
+                gallery_indices.append(idx)
+                gallery_target_id.append(target_id)
+
+            if len(gallery_indices) == 0:
+                continue
+
+            category_gallery = gallery_feat_all[gallery_indices]
+            category_target_id = np.array(gallery_target_id)
+            ap = []
+            top1 = []
+            top5 = []
 
             for idx in category_indices:
                 distance = -1*self.distance_fn(query_feat_all[idx].unsqueeze(0), category_gallery)
@@ -184,11 +202,19 @@ class Model(pl.LightningModule):
                 top1.append(target_cpu[order[:1]].any().float())
                 top5.append(target_cpu[order[:5]].any().float())
 
-        if len(ap) == 0:
+            category_ap.append(torch.stack(ap).mean())
+            category_top1.append(torch.stack(top1).mean())
+            category_top5.append(torch.stack(top5).mean())
+
+        if len(category_ap) == 0:
             zero = query_feat_all.new_zeros(()).cpu()
             return zero, zero, zero
 
-        return torch.stack(ap).mean(), torch.stack(top1).mean(), torch.stack(top5).mean()
+        return (
+            torch.stack(category_ap).mean(),
+            torch.stack(category_top1).mean(),
+            torch.stack(category_top5).mean(),
+        )
 
     def training_step(self, batch, batch_idx):
         sk_tensor, img_tensor, neg_tensor, category = batch[:4]
@@ -257,10 +283,11 @@ class Model(pl.LightningModule):
             acc5 = None
 
         self.log('mAP', mAP, prog_bar=False, batch_size=len(query_feat_all))
+        tracked_metric = acc1.item() if self.opts.retrieval_level == 'fine_grain' else mAP.item()
         if self.global_step > 0:
-            self.best_metric = self.best_metric if  (self.best_metric > mAP.item()) else mAP.item()
+            self.best_metric = self.best_metric if  (self.best_metric > tracked_metric) else tracked_metric
         if self.opts.retrieval_level == 'fine_grain':
-            print ('epoch={} {} mAP={:.4f} acc1={:.4f} acc5={:.4f} best_mAP={:.4f}'.format(
+            print ('epoch={} {} mAP={:.4f} acc1={:.4f} acc5={:.4f} best_acc1={:.4f}'.format(
                 self.current_epoch, self.opts.retrieval_level,
                 mAP.item(), acc1.item(), acc5.item(), self.best_metric))
         else:
