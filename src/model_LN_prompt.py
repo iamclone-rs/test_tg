@@ -152,6 +152,44 @@ class Model(pl.LightningModule):
         precision_at_k = torch.cumsum(sorted_target, dim=0) / ranks
         return (precision_at_k * sorted_target).sum() / positives
 
+    def _compute_category_map(self, query_feat_all, gallery_feat_all, all_category):
+        gallery = gallery_feat_all
+        ap = torch.zeros(len(query_feat_all))
+        for idx, sk_feat in enumerate(query_feat_all):
+            distance = -1*self.distance_fn(sk_feat.unsqueeze(0), gallery)
+            target = torch.zeros(len(gallery), dtype=torch.bool)
+            target[np.where(all_category == all_category[idx])] = True
+            ap[idx] = self._average_precision(distance.cpu(), target.cpu())
+        return torch.mean(ap)
+
+    def _compute_fine_grain_metrics(self, query_feat_all, gallery_feat_all, all_category, all_target_id):
+        ap = []
+        top1 = []
+        top5 = []
+
+        for category in sorted(set(all_category)):
+            category_indices = np.where(all_category == category)[0]
+            category_gallery = gallery_feat_all[category_indices]
+            category_target_id = all_target_id[category_indices]
+
+            for idx in category_indices:
+                distance = -1*self.distance_fn(query_feat_all[idx].unsqueeze(0), category_gallery)
+                target = torch.zeros(len(category_gallery), dtype=torch.bool)
+                target[np.where(category_target_id == all_target_id[idx])] = True
+
+                scores = distance.cpu()
+                target_cpu = target.cpu()
+                order = torch.argsort(scores, descending=True)
+                ap.append(self._average_precision(scores, target_cpu))
+                top1.append(target_cpu[order[:1]].any().float())
+                top5.append(target_cpu[order[:5]].any().float())
+
+        if len(ap) == 0:
+            zero = query_feat_all.new_zeros(()).cpu()
+            return zero, zero, zero
+
+        return torch.stack(ap).mean(), torch.stack(top1).mean(), torch.stack(top5).mean()
+
     def training_step(self, batch, batch_idx):
         sk_tensor, img_tensor, neg_tensor, category = batch[:4]
         batch_size = sk_tensor.shape[0]
@@ -208,22 +246,24 @@ class Model(pl.LightningModule):
         all_target_id = np.array(sum([list(self.validation_outputs[i]['target_id']) for i in range(Len)], []))
 
 
-        ## mAP retrieval metric over the positive image gallery, following the original code path.
-        gallery = gallery_feat_all
-        ap = torch.zeros(len(query_feat_all))
-        for idx, sk_feat in enumerate(query_feat_all):
-            distance = -1*self.distance_fn(sk_feat.unsqueeze(0), gallery)
-            target = torch.zeros(len(gallery), dtype=torch.bool)
-            if self.opts.retrieval_level == 'fine_grain':
-                target[np.where(all_target_id == all_target_id[idx])] = True
-            else:
-                target[np.where(all_category == all_category[idx])] = True
-            ap[idx] = self._average_precision(distance.cpu(), target.cpu())
-        
-        mAP = torch.mean(ap)
+        if self.opts.retrieval_level == 'fine_grain':
+            mAP, acc1, acc5 = self._compute_fine_grain_metrics(
+                query_feat_all, gallery_feat_all, all_category, all_target_id)
+            self.log('acc1', acc1, prog_bar=False, batch_size=len(query_feat_all))
+            self.log('acc5', acc5, prog_bar=False, batch_size=len(query_feat_all))
+        else:
+            mAP = self._compute_category_map(query_feat_all, gallery_feat_all, all_category)
+            acc1 = None
+            acc5 = None
+
         self.log('mAP', mAP, prog_bar=False, batch_size=len(query_feat_all))
         if self.global_step > 0:
             self.best_metric = self.best_metric if  (self.best_metric > mAP.item()) else mAP.item()
-        print ('epoch={} {} mAP={:.4f} best_mAP={:.4f}'.format(
-            self.current_epoch, self.opts.retrieval_level, mAP.item(), self.best_metric))
+        if self.opts.retrieval_level == 'fine_grain':
+            print ('epoch={} {} mAP={:.4f} acc1={:.4f} acc5={:.4f} best_mAP={:.4f}'.format(
+                self.current_epoch, self.opts.retrieval_level,
+                mAP.item(), acc1.item(), acc5.item(), self.best_metric))
+        else:
+            print ('epoch={} {} mAP={:.4f} best_mAP={:.4f}'.format(
+                self.current_epoch, self.opts.retrieval_level, mAP.item(), self.best_metric))
         self.validation_outputs = []
